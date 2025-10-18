@@ -874,9 +874,9 @@ class SoCIRQHandler(SoCLocHandler):
         self.enabled = False
 
         # Check IRQ Number.
-        if n_irqs > 32:
+        if n_irqs > 128:
             self.logger.error("Unsupported IRQs number: {} supported are: {:s}".format(
-                colorer(n_irqs, color="red"), colorer("Up to 32", color="green")))
+                colorer(n_irqs, color="red"), colorer("Up to 128", color="green")))
             raise SoCError()
 
         # Create IRQ Handler.
@@ -1472,6 +1472,11 @@ class SoC(LiteXModule, SoCCoreCompat):
         # SoC IRQ Interconnect ---------------------------------------------------------------------
         if hasattr(self, "cpu") and hasattr(self.cpu, "interrupt"):
             self.add_config("CPU_INTERRUPTS", max(self.irq.locs.values()) + 1)
+            if len(self.irq.locs) > len(self.cpu.interrupt):
+                self.logger.error("CPU interrupt count ({}) must be greater than or equal to IRQ count ({}).".format(
+                    colorer(len(self.cpu.interrupt), color="red"),
+                    colorer(len(self.irq.locs), color="red")))
+                raise SoCError()
             for name, loc in sorted(self.irq.locs.items()):
                 if name in self.cpu.interrupts.keys():
                     continue
