@@ -62,6 +62,7 @@ class VexRiscvSMP(CPU):
     clint_base           = 0xf001_0000
     plic_base            = 0xf0c0_0000
     reset_vector         = 0
+    interrupt_count      = 32
 
     # Command line configuration arguments.
     @staticmethod
@@ -91,7 +92,8 @@ class VexRiscvSMP(CPU):
         cpu_group.add_argument("--csr-base",                     default="0xf0000000", help="CSR base address.")
         cpu_group.add_argument("--clint-base",                   default="0xf0010000", help="CLINT base address.")
         cpu_group.add_argument("--plic-base",                    default="0xf0c00000", help="PLIC base address.")
-        cpu_group.add_argument("--jtag-tap",                     action="store_true", help="Add the jtag tap instead of jtag instruction interface")
+        cpu_group.add_argument("--jtag-tap",                     action="store_true",  help="Add the jtag tap instead of jtag instruction interface")
+        cpu_group.add_argument("--interrupt-count",              default="32",         help="Number of interrupt lines", type=int)
 
     @staticmethod
     def args_read(args):
@@ -133,6 +135,7 @@ class VexRiscvSMP(CPU):
         if(args.clint_base): VexRiscvSMP.clint_base = int(args.clint_base, 16)
         if(args.plic_base):  VexRiscvSMP.plic_base  = int(args.plic_base, 16)
         if(args.jtag_tap):  VexRiscvSMP.jtag_tap = int(args.jtag_tap)
+        if(args.interrupt_count):  VexRiscvSMP.interrupt_count = int(args.interrupt_count)
 
     # ABI.
     @staticmethod
@@ -314,6 +317,7 @@ class VexRiscvSMP(CPU):
         gen_args.append(f"--dtlb-size={VexRiscvSMP.dtlb_size}")
         gen_args.append(f"--itlb-size={VexRiscvSMP.itlb_size}")
         gen_args.append(f"--jtag-tap={VexRiscvSMP.jtag_tap}")
+        gen_args.append(f"--interrupt-count={VexRiscvSMP.interrupt_count}")
 
         cmd = 'cd {path} && sbt "runMain vexriscv.demo.smp.VexRiscvLitexSmpClusterCmdGen {args}"'.format(path=os.path.join(vdir, "ext", "VexRiscv"), args=" ".join(gen_args))
         subprocess.check_call(cmd, shell=True)
@@ -340,7 +344,7 @@ class VexRiscvSMP(CPU):
             self.jtag_shift   = Signal()
             self.jtag_update  = Signal()
 
-        self.interrupt        = Signal(32)
+        self.interrupt        = Signal(VexRiscvSMP.interrupt_count)
         self.pbus             = pbus = wishbone.Interface(data_width={
             # Always 32-bit when using direct LiteDRAM interfaces.
             False : 32,
