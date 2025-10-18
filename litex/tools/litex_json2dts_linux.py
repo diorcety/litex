@@ -14,15 +14,25 @@ import argparse
 
 from litex.gen.common import KILOBYTE, MEGABYTE
 
+# Rename mem according to prefix if provided and add 0 suffix if not provided
+def dev_name(dev:str, prefix=None):
+    import re
+    match = re.search(r'^(.*?)(\d+)$', dev)
+    match_prefix, match_suffix = (match.group(1), match.group(2)) if match else (dev, '0')
+    if prefix is None:
+        prefix = match_prefix
+    return prefix + match_suffix
+
 def generate_dts(d, initrd_start=None, initrd_size=None, initrd=None, root_device=None, polling=False):
     aliases = {}
 
     # CPU Parameters -------------------------------------------------------------------------------
-    cpu_count  = int(d["constants"].get("config_cpu_count", 1))
-    cpu_name   = d["constants"].get("config_cpu_name")
-    cpu_family = d["constants"].get("config_cpu_family")
-    cpu_isa    = d["constants"].get("config_cpu_isa", None)
-    cpu_mmu    = d["constants"].get("config_cpu_mmu", None)
+    cpu_count      = int(d["constants"].get("config_cpu_count", 1))
+    cpu_name       = d["constants"].get("config_cpu_name")
+    cpu_family     = d["constants"].get("config_cpu_family")
+    cpu_isa        = d["constants"].get("config_cpu_isa", None)
+    cpu_mmu        = d["constants"].get("config_cpu_mmu", None)
+    cpu_interrupts = d["constants"].get("config_cpu_interrupts", 32)
 
     # Header ---------------------------------------------------------------------------------------
     platform = d["constants"]["config_platform_name"]
@@ -340,7 +350,7 @@ def generate_dts(d, initrd_start=None, initrd_size=None, initrd=None, root_devic
     # SoC ------------------------------------------------------------------------------------------
 
     dts += """
-        soc {{
+        soc: soc {{
             #address-cells = <1>;
             #size-cells    = <1>;
             compatible = "simple-bus";
@@ -392,13 +402,14 @@ def generate_dts(d, initrd_start=None, initrd_size=None, initrd=None, root_devic
                 interrupt-controller;
                 interrupts-extended = <
                     {cpu_mapping}>;
-                riscv,ndev = <32>;
+                riscv,ndev = <{interrupt_count}>;
                 {extra_attr}
             }};
 """.format(
-        plic_base   = d["memories"]["plic"]["base"],
-        cpu_mapping = ("\n" + " "*20).join(["&L{} 11 &L{} 9".format(cpu, cpu) for cpu in range(cpu_count)]),
-        extra_attr  = extra_attr)
+        plic_base       = d["memories"]["plic"]["base"],
+        cpu_mapping     = ("\n" + " "*20).join(["&L{} 11 &L{} 9".format(cpu, cpu) for cpu in range(cpu_count)]),
+        interrupt_count = cpu_interrupts,
+        extra_attr      = extra_attr)
 
     elif cpu_family == "or1k":
         dts += """
@@ -432,21 +443,25 @@ def generate_dts(d, initrd_start=None, initrd_size=None, initrd=None, root_devic
             }};
 """.format(
         cpu_mapping =("\n" + " "*20).join(["&L{} 0x3F".format(cpu) for cpu in range(cpu_count)]))
+
     # UART -----------------------------------------------------------------------------------------
 
-    if "uart" in d["csr_bases"]:
-        aliases["serial0"] = "liteuart0"
-        it_incr = {True: 1, False: 0}[cpu_name == "rocket"]
-        dts += """
-            liteuart0: serial@{uart_csr_base:x} {{
+    for mem in d["csr_bases"]:
+        if "uart" in mem:
+            name = dev_name(mem, "liteuart")
+            aliases[dev_name(mem, "serial")] = name
+            it_incr = {True: 1, False: 0}[cpu_name == "rocket"]
+            dts += """
+            {name}: serial@{uart_csr_base:x} {{
                 compatible = "litex,liteuart";
                 reg = <0x{uart_csr_base:x} 0x100>;
                 {uart_interrupt}
                 status = "okay";
             }};
 """.format(
-    uart_csr_base  = d["csr_bases"]["uart"],
-    uart_interrupt = "" if polling else "interrupts = <{}>;".format(int(d["constants"]["uart_interrupt"]) + it_incr))
+    name = name,
+    uart_csr_base  = d["csr_bases"][mem],
+    uart_interrupt = "" if polling else "interrupts = <{}>;".format(int(d["constants"][f"{mem}_interrupt"]) + it_incr))
 
     # Ethernet -------------------------------------------------------------------------------------
     for i in [''] + list(range(0, 10)):
@@ -621,10 +636,12 @@ def generate_dts(d, initrd_start=None, initrd_size=None, initrd=None, root_devic
 
     # SPI ------------------------------------------------------------------------------------------
 
-    if "spi" in d["csr_bases"]:
-        aliases["spi0"] = "litespi0"
-        dts += """
-            litespi0: spi@{spi_csr_base:x} {{
+    for mem in d["csr_bases"]:
+        if "spi" in mem:
+            name = dev_name(mem, "litespi")
+            aliases[dev_name(mem, "spi")] = name
+            dts += """
+            {name}: spi@{spi_csr_base:x} {{
                 compatible = "litex,litespi";
                 reg = <0x{spi_csr_base:x} 0x100>;
                 status = "okay";
@@ -643,20 +660,26 @@ def generate_dts(d, initrd_start=None, initrd_size=None, initrd=None, root_devic
                     status = "okay";
                 }};
             }};
-""".format(spi_csr_base=d["csr_bases"]["spi"])
+""".format(name=name,
+           spi_csr_base=d["csr_bases"][mem]
+           )
 
     # I2C ------------------------------------------------------------------------------------------
 
-    if "i2c0" in d["csr_bases"]:
-        dts += """
-            i2c0: i2c@{i2c0_csr_base:x} {{
+    for mem in d["csr_bases"]:
+        if "i2c" in mem:
+            name = dev_name(mem, "i2c")
+            dts += """
+            {name}: i2c@{i2c0_csr_base:x} {{
                 compatible = "litex,i2c";
                 reg = <0x{i2c0_csr_base:x} 0x5>;
                 #address-cells = <1>;
                 #size-cells = <0>;
                 status = "okay";
             }};
-""".format(i2c0_csr_base=d["csr_bases"]["i2c0"])
+""".format(name=name,
+           i2c0_csr_base=d["csr_bases"][mem]
+           )
 
     # XADC -----------------------------------------------------------------------------------------
 
@@ -673,6 +696,7 @@ def generate_dts(d, initrd_start=None, initrd_size=None, initrd=None, root_devic
 
     for mem in d["memories"]:
         if "can" in mem:
+            name = dev_name(mem, "can")
             dts += """
             {name}: can@{can_mem_base:x} {{
                 compatible = "ctu,ctucanfd";
@@ -682,7 +706,7 @@ def generate_dts(d, initrd_start=None, initrd_size=None, initrd=None, root_devic
                 clocks = <&sys_clk>;
                 status = "okay";
             }};
-""".format(name=mem,
+""".format(name=name,
                 can_mem_base=d["memories"][mem]["base"],
                 can_mem_size=d["memories"][mem]["size"],
                 can_interrupt = int(d["constants"][f"{mem}_interrupt"]),
