@@ -317,7 +317,7 @@ class VexRiscvSMP(CPU):
         gen_args.append(f"--dtlb-size={VexRiscvSMP.dtlb_size}")
         gen_args.append(f"--itlb-size={VexRiscvSMP.itlb_size}")
         gen_args.append(f"--jtag-tap={VexRiscvSMP.jtag_tap}")
-        gen_args.append(f"--interrupt-count={VexRiscvSMP.interrupt_count}")
+        #gen_args.append(f"--interrupt-count={VexRiscvSMP.interrupt_count}")
 
         cmd = 'cd {path} && sbt "runMain vexriscv.demo.smp.VexRiscvLitexSmpClusterCmdGen {args}"'.format(path=os.path.join(vdir, "ext", "VexRiscv"), args=" ".join(gen_args))
         subprocess.check_call(cmd, shell=True)

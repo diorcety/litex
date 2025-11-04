@@ -378,6 +378,9 @@ class XilinxVivadoToolchain(GenericToolchain):
             synth_cmd = f"synth_design -directive {self.vivado_synth_directive} -top {self._build_name} -part {self.platform.device}"
             if self.platform.verilog_include_paths:
                 synth_cmd += f" -include_dirs {{{' '.join(self.platform.verilog_include_paths)}}}"
+            #tcl.append(synth_cmd + " -rtl")
+            #tcl.append("config_timing_analysis -enable_preset_clear_arcs true")
+            #tcl.append("set_property MAX_FANOUT 120 [get_cells *]")
             tcl.append(synth_cmd)
         elif self._synth_mode == "yosys":
             tcl.append("\n# Read Yosys EDIF\n")
@@ -434,6 +437,8 @@ class XilinxVivadoToolchain(GenericToolchain):
         tcl.append("report_timing_summary -no_header -no_detailed_paths")
         tcl.append(f"report_route_status -file {self._build_name}_route_status.rpt")
         tcl.append(f"report_drc -file {self._build_name}_drc.rpt")
+        tcl.append(f"report_design_analysis -file {self._build_name}_design_analysis.rpt")
+        tcl.append(f"report_qor_suggestions -file {self._build_name}_qor_suggestions.rpt")
         tcl.append(f"report_timing_summary -datasheet -max_paths 10 -file {self._build_name}_timing.rpt")
         tcl.append(f"report_power -file {self._build_name}_power.rpt")
 
