@@ -8,6 +8,7 @@
 # Copyright (c) 2022 Sylvain Munaut <tnt@246tNt.com>
 # SPDX-License-Identifier: BSD-2-Clause
 
+from litex.soc.cores.dts import DTSBase
 from migen import *
 
 from litex.gen import LiteXModule
@@ -85,8 +86,12 @@ S7SystemMonitorChannels = [
     ]),
 ]
 
-class S7SystemMonitor(XilinxSystemMonitor):
+class S7SystemMonitor(XilinxSystemMonitor, DTSBase):
+    LINUX_DTS_COMPATIBLE = "litex,hwmon-xadc"
+
     def __init__(self, channels=S7SystemMonitorChannels, analog_pads=None):
+        super().__init__()
+
         # Channels.
         for channel in channels:
             self.add_channel(channel)
@@ -166,6 +171,10 @@ class S7SystemMonitor(XilinxSystemMonitor):
             self.eoc.status.eq((self.eoc.status & ~self.eoc.we) | eoc),
             self.eos.status.eq((self.eos.status & ~self.eos.we) | eos),
         ]
+
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        node = root / "soc" + ("xadc", name, cls)
 
 class XADC(S7SystemMonitor): pass # For compat.
 

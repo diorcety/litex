@@ -9,11 +9,15 @@ from migen.genlib.cdc import MultiReg
 
 from litex.gen import *
 
+from litex.soc.cores.dts import DTSBase
+
 from litex.soc.interconnect.csr import *
 
 # Pulse Width Modulation ---------------------------------------------------------------------------
 
-class PWM(LiteXModule):
+class PWM(LiteXModule, DTSBase):
+    LINUX_DTS_COMPATIBLE = "litex,pwm"
+
     """Pulse Width Modulation
 
     Provides the minimal hardware to do Pulse Width Modulation.
@@ -25,6 +29,7 @@ class PWM(LiteXModule):
         default_enable = 0,
         default_width  = 0,
         default_period = 0):
+        super().__init__()
         if pwm is None:
             self.pwm = pwm = Signal()
         self.reset  = Signal()
@@ -80,6 +85,12 @@ class PWM(LiteXModule):
     def add_csr(self, clock_domain):
         self.add_enable_width_csr(clock_domain)
         self.add_period_csr(clock_domain)
+
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        node = root / "soc" + ("pwm", name, cls)
+        node.entries["#pwm-cells"] = 3
+        node.entries["clock"] = 100000000
 
 # Multi Channel Pulse Width Modulation -------------------------------------------------------------
 

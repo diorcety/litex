@@ -18,13 +18,18 @@ from litex.gen import *
 from litex.build import tools
 from litex.build.vhd2v_converter import VHD2VConverter
 
+from litex.soc.cores.dts import DTSBase, DTSRegMode
+
 from litex.soc.interconnect import wishbone
 from litex.soc.interconnect.csr_eventmanager import *
 
 # CTU CAN-FD ---------------------------------------------------------------------------------------
 
-class CTUCANFD(LiteXModule, EventManager):
+class CTUCANFD(LiteXModule, EventManager, DTSBase):
+    LINUX_DTS_COMPATIBLE = "ctu,ctucanfd"
+
     def __init__(self, platform, pads, timestamp=0, force_convert=False, active_timestamp_bits=63, test_registers=True, txt_buffer_count=4, rx_buffer_size=32):
+        super().__init__()
         # Parameters.
         self.platform       = platform
         self.pads           = pads
@@ -173,3 +178,10 @@ class CTUCANFD(LiteXModule, EventManager):
 
         # Add Sources.
         self.add_sources(self.platform)
+
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        node = root / "soc" + ("can", name, cls)
+        node.reg_mode = DTSRegMode.MEMORY
+        cls.init_interrupts(name, d, node)
+        node.entries["clocks"] = root / "sys_clk"

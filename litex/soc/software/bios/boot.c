@@ -304,20 +304,20 @@ int serialboot(void)
 #define TFTP_SERVER_PORT 69
 #endif
 
-#ifdef MACADDR1
-static unsigned char macadr[6] = {MACADDR1, MACADDR2, MACADDR3, MACADDR4, MACADDR5, MACADDR6};
+#ifdef ETHMAC_MACADDR1
+static unsigned char macadr[6] = {ETHMAC_MACADDR1, ETHMAC_MACADDR2, ETHMAC_MACADDR3, ETHMAC_MACADDR4, ETHMAC_MACADDR5, ETHMAC_MACADDR6};
 #else
 static unsigned char macadr[6] = {0x10, 0xe2, 0xd5, 0x00, 0x00, 0x00};
 #endif
 
-#ifdef LOCALIP1
-static unsigned int local_ip[4] = {LOCALIP1, LOCALIP2, LOCALIP3, LOCALIP4};
+#ifdef ETHMAC_LOCALIP1
+static unsigned int local_ip[4] = {ETHMAC_LOCALIP1, ETHMAC_LOCALIP2, ETHMAC_LOCALIP3, ETHMAC_LOCALIP4};
 #else
 static unsigned int local_ip[4] = {192, 168, 1, 50};
 #endif
 
-#ifdef REMOTEIP1
-static unsigned int remote_ip[4] = {REMOTEIP1, REMOTEIP2, REMOTEIP3, REMOTEIP4};
+#ifdef ETHMAC_REMOTEIP1
+static unsigned int remote_ip[4] = {ETHMAC_REMOTEIP1, ETHMAC_REMOTEIP2, ETHMAC_REMOTEIP3, ETHMAC_REMOTEIP4};
 #else
 static unsigned int remote_ip[4] = {192, 168, 1, 100};
 #endif
@@ -334,7 +334,7 @@ const char *filename, char *buffer)
 	return size;
 }
 
-#ifdef ETH_DYNAMIC_IP
+#ifdef ETHMAC_DYNAMIC_IP
 
 uint8_t parse_ip(const char * ip_address, unsigned int * ip_to_change)
 {

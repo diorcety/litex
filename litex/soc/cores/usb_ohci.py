@@ -16,6 +16,7 @@ from litex.gen import *
 
 from litex.soc.interconnect import wishbone
 
+from litex.soc.cores.dts import DTSBase, DTSRegMode
 from litex.build.io import SDRTristate
 
 # USB OHCI -----------------------------------------------------------------------------------------
@@ -26,8 +27,12 @@ class InterruptPin:
     def __init__(self):
         self.irq = Signal()
 
-class USBOHCI(LiteXModule):
+class USBOHCI(LiteXModule, DTSBase):
+    LINUX_DTS_COMPATIBLE = "generic-ohci"
+
     def __init__(self, platform, pads, usb_clk_freq=48e6, dma_data_width=32):
+        super().__init__()
+
         self.pads           = pads
         self.usb_clk_freq   = int(usb_clk_freq)
         self.dma_data_width = dma_data_width
@@ -148,3 +153,9 @@ class USBOHCI(LiteXModule):
         print("!!! "   + cmd)
         if os.system(cmd) != 0:
             raise OSError('Failed to run sbt')
+
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        node = root / "soc" + ("generic-ohci", name, cls)
+        node.reg_mode = DTSRegMode.MEMORY
+        cls.init_interrupts(name, d, node)

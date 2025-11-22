@@ -12,6 +12,7 @@ from migen import *
 from litex.gen import *
 from litex.gen.genlib.misc import WaitTimer
 
+from litex.soc.cores.gpio import _GPIODTS
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect import axi, wishbone
 
@@ -20,12 +21,14 @@ from litex.soc.interconnect import axi, wishbone
 _CHASER_MODE  = 0
 _CONTROL_MODE = 1
 
-class LedChaser(LiteXModule):
+class LedChaser(LiteXModule, _GPIODTS):
     def __init__(self, pads, sys_clk_freq, period=1e0, polarity=0):
-        self.pads     = pads
-        self.polarity = polarity
-        self.n        = len(pads)
-        self._out     = CSRStorage(len(pads), description="Led Output(s) Control.")
+        super().__init__()
+        self.pads       = pads
+        self.polarity   = polarity
+        self.n          = len(pads)
+        self._out       = CSRStorage(len(pads), description="Led Output(s) Control.")
+        self._out_ngpio = CSRConstant(len(pads))
 
         # # #
 

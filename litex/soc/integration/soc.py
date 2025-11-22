@@ -14,6 +14,8 @@ import logging
 import argparse
 import datetime
 
+from collections import OrderedDict
+from litex.soc.cores.dts import DTSBase, DTSRegMode, HexBytes, HexInt, dts_regs_entries
 from migen import *
 
 from litex.gen                import colorer
@@ -498,7 +500,7 @@ class SoCBusHandler(LiteXModule):
         ))
 
         return adapted_interface
-    
+
     # Add Offset ---------------------------------------------------------------------------------
     def add_offset(self, name, interface, offset):
         interface_cls = type(interface)
@@ -931,8 +933,11 @@ class SoCIRQHandler(SoCLocHandler):
 
 # SoCController ------------------------------------------------------------------------------------
 
-class SoCController(LiteXModule):
+class SoCController(LiteXModule, DTSBase):
+    LINUX_DTS_COMPATIBLE = "litex,soc-controller"
+
     def __init__(self, with_reset=True, with_scratch=True, with_errors=True):
+        super().__init__()
         if with_reset:
             self._reset = CSRStorage(fields=[
                 CSRField("soc_rst", size=1, offset=0, pulse=True, description="""Write `1` to this register to reset the full SoC (Pulse Reset)"""),
@@ -963,6 +968,11 @@ class SoCController(LiteXModule):
                 )
             ]
             self.comb += self._bus_errors.status.eq(bus_errors)
+
+
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        node = root / "soc" + ("soc_controller", name, cls)
 
 # SoC ----------------------------------------------------------------------------------------------
 
@@ -1915,13 +1925,62 @@ class LiteXSoC(SoC):
         from liteeth.mac import LiteEthMAC
         from liteeth.phy.model import LiteEthPHYModel
 
+        soc = self
+        class Mac(LiteEthMAC, DTSBase):
+            LINUX_DTS_COMPATIBLE = "litex,liteeth"
+
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+
+                self.local_ip = local_ip
+                self.remote_ip = remote_ip
+                self.mac_address = mac_address
+
+            def finalize(self, *args, **kwargs):
+                super().finalize(*args, **kwargs)
+                if self.local_ip:
+                    add_ip_address_constants(soc, f"{name}_LOCALIP", self.local_ip)
+                if self.remote_ip:
+                    add_ip_address_constants(soc, f"{name}_REMOTEIP", self.remote_ip)
+                if self.mac_address:
+                    add_mac_address_constants(soc, f"{name}_MACADDR", self.mac_address)
+
+            @classmethod
+            def linux_dts(cls, name, d, root):
+                node = root / "soc" + ("mac", name, cls)
+                node.reg_mode = DTSRegMode.CUSTOM
+
+                # Lookup for PHY associated to this MAC
+                phy_name = None
+                for key, value in d["constants"].items():
+                    if key.endswith("_mac") and value == name:
+                        phy_name = key[0:-4]
+                assert phy_name is not None
+
+                reg_dict = OrderedDict()
+                reg_dict["mac"] = dts_regs_entries(name, d, DTSRegMode.ONE_REG)["reg"]
+                reg_dict["mdio"] = dts_regs_entries(phy_name, d, DTSRegMode.ONE_REG)["reg"]
+                reg_dict["buffer"] = dts_regs_entries(name, d, DTSRegMode.MEMORY)["reg"]
+                node.entries["reg-names"] = reg_dict.keys()
+                node.entries["reg"] =reg_dict.values()
+
+                node.entries["litex,rx-slots"] = d["constants"][f"{name}_rx_slots"]
+                node.entries["litex,tx-slots"] = d["constants"][f"{name}_tx_slots"]
+                node.entries["litex,slot-size"] = d["constants"][f"{name}_slot_size"]
+
+                if f"{name}_macaddr1" in d["constants"]:
+                    node.entries["local-mac-address"] = HexBytes(d["constants"][f"{name}_macaddr{x+1}"] for x in range(6))
+
+                # Interrupt part
+                cls.init_interrupts(name, d, node)
+
         # MAC.
         assert data_width in [8, 32, 64]
         with_sys_datapath = (data_width == 32)
         self.check_if_exists(name)
         if with_timestamp:
             self.timer0.add_uptime()
-        ethmac = LiteEthMAC(
+        ethmac = Mac(
             phy               = phy,
             dw                = {8: 32, 32: 32, 64: 64}[data_width],
             interface         = "wishbone",
@@ -1944,6 +2003,7 @@ class LiteXSoC(SoC):
                 "eth_tx": eth_tx_clk_name,
                 "eth_rx": eth_rx_clk_name})(ethmac)
         self.add_module(name=name, module=ethmac)
+        phy._mac = CSRConstant(name, string=True)
 
         # Compute Regions size and add it to the SoC.
         ethmac_rx_region_size = ethmac.rx_slots.constant*ethmac.slot_size.constant
@@ -1979,21 +2039,12 @@ class LiteXSoC(SoC):
         # Dynamic IP (if enabled).
         if dynamic_ip:
             assert local_ip is None
-            self.add_constant("ETH_DYNAMIC_IP")
-
-        # Local/Remote IP Configuration (optional).
-        if local_ip:
-            add_ip_address_constants(self, "LOCALIP", local_ip)
-        if remote_ip:
-            add_ip_address_constants(self, "REMOTEIP", remote_ip)
-        if mac_address:
-            add_mac_address_constants(self, "MACADDR", mac_address)
-        
+            self.add_constant("{name}_DYNAMIC_IP")
 
         # Software Debug
         if software_debug:
-            self.add_constant("ETH_UDP_TX_DEBUG")
-            self.add_constant("ETH_UDP_RX_DEBUG")
+            self.add_constant("{name}_UDP_TX_DEBUG")
+            self.add_constant("{name}_UDP_RX_DEBUG")
 
         # Timing constraints
         if with_timing_constraints:
@@ -2121,11 +2172,11 @@ class LiteXSoC(SoC):
             if self.irq.enabled:
                 self.irq.add("ethmac", use_loc_if_exists=True)
 
-            self.add_constant("ETH_PHY_NO_RESET") # Disable reset from BIOS to avoid disabling Hardware Interface.
+            self.add_constant(f"{name}_ETH_PHY_NO_RESET") # Disable reset from BIOS to avoid disabling Hardware Interface.
 
-            add_ip_address_constants(self,  "LOCALIP",  ethmac_local_ip)
-            add_ip_address_constants(self,  "REMOTEIP", ethmac_remote_ip)
-            add_mac_address_constants(self, "MACADDR",  ethmac_address)
+            add_ip_address_constants(self,  f"{name}_LOCALIP",  ethmac_local_ip)
+            add_ip_address_constants(self,  f"{name}_REMOTEIP", ethmac_remote_ip)
+            add_mac_address_constants(self, f"{name}_MACADDR",  ethmac_address)
 
     # Add I2C Master -------------------------------------------------------------------------------
     def add_i2c_master(self, name="i2cmaster", pads=None, **kwargs):
@@ -2176,6 +2227,23 @@ class LiteXSoC(SoC):
         from litespi.phy.generic import LiteSPIPHY
         from litespi.opcodes import SpiNorFlashOpCodes
 
+        class SPIFlash(LiteSPI, DTSBase):
+            LINUX_DTS_COMPATIBLE = "litex,spiflash"
+
+            def __init__(self, phy, **kwargs):
+                super().__init__(phy, **kwargs)
+                self.add_module(name="phy", module=phy)
+
+            @classmethod
+            def linux_dts(cls, name, d, root):
+                node = root / "soc" + ("spiflash", name, cls)
+                node.entries["#address-cells"] = 1
+                node.entries["#size-cells"] = 1
+
+                flash_node = node + ("flash", "flash", "jedec,spi-nor", 0)
+                flash_node.entries["reg"] = (HexInt(0), dts_regs_entries(name, d, DTSRegMode.MEMORY)["reg"][1])
+
+
         # Checks/Parameters.
         assert mode in ["1x", "4x"]
         default_divisor = math.ceil(self.sys_clk_freq/(2*clk_freq)) - 1
@@ -2193,8 +2261,7 @@ class LiteXSoC(SoC):
 
         # Core.
         self.check_if_exists(name)
-        spiflash = LiteSPI(spiflash_phy, mmap_endianness=self.cpu.endianness, **kwargs)
-        spiflash.add_module(name="phy", module=spiflash_phy)
+        spiflash = SPIFlash(spiflash_phy, mmap_endianness=self.cpu.endianness, **kwargs)
         self.add_module(name=name, module=spiflash)
 
         if hasattr(spiflash, "mmap"):
@@ -2252,11 +2319,11 @@ class LiteXSoC(SoC):
         spiram.add_module(name="phy", module=spiram_phy)
         self.add_module(name=name, module=spiram)
         spiram_region = SoCRegion(origin=self.mem_map.get(name, None), size=module.total_size, mode="rwx")
-        
+
         # Create Wishbone Slave.
         wb_spiram = wishbone.Interface(data_width=32, address_width=32, addressing="word")
         self.bus.add_slave(name=name, slave=wb_spiram, region=spiram_region, strip_origin=True)
-        
+
         # L2 Cache
         if l2_cache_size != 0:
             # Insert L2 cache inbetween Wishbone bus and LiteSPI
@@ -2296,6 +2363,24 @@ class LiteXSoC(SoC):
         from migen.fhdl.specials import Tristate
         from litex.soc.cores.spi import SPIMaster
 
+        class MMCSPISlot(LiteXModule, DTSBase):
+            LINUX_DTS_COMPATIBLE = "mmc-spi-slot"
+
+            def __init__(self, parent):
+                super().__init__()
+                self._spi_parent = CSRConstant(parent, string=True)
+
+            @classmethod
+            def linux_dts(cls, name, d, root):
+                parent = d["constants"].get(f"{name}_spi_parent", None)
+                assert parent is not None, f"No {name}_spi_parent"
+
+                slot = root / "soc" / parent + ("mmc-slot", None, cls, 0)
+                slot.entries["status"] = "okay"
+                slot.entries["reg"] = 0
+                slot.entries["voltage-ranges"] = (3300, 3300)
+                slot.entries["spi-max-frequency"] = d["constants"].get(f"{parent}_FREQUENCY", 1500000)
+
         # Pads.
         spi_sdcard_pads = self.platform.request(name)
         if hasattr(spi_sdcard_pads, "rst"):
@@ -2321,10 +2406,11 @@ class LiteXSoC(SoC):
         )
         spisdcard.add_clk_divider()
         self.add_module(name=name, module=spisdcard)
+        spisdcard.add_module(name="slot", module=MMCSPISlot(name))
 
         # Debug.
         if software_debug:
-            self.add_constant("SPISDCARD_DEBUG")
+            self.add_constant(f"{name}_DEBUG")
 
     # Add SDCard -----------------------------------------------------------------------------------
     def add_sdcard(self, name="sdcard", sdcard_name="sdcard", software_debug=False, **kwargs):
@@ -2395,6 +2481,35 @@ class LiteXSoC(SoC):
                     ev.data_done.trigger.eq(core.data_event.fields.done),
                     ev.cmd_done.trigger.eq(core.cmd_event.fields.done)
                 ]
+
+            @classmethod
+            def linux_dts(cls, name, d, root):
+                vreg_mmc_node = root + ("vreg_mmc", "vreg_mmc", "regulator-fixed")
+                vreg_mmc_node.entries["regulator-name"] = "vreg_mmc"
+                vreg_mmc_node.entries["regulator-min-microvolt"] = 3300000
+                vreg_mmc_node.entries["regulator-min-microvolt"] = 3300000
+                vreg_mmc_node.entries["regulator-always-on"] = None
+
+                node = root / "soc" + ("mmc", name, cls)
+                node.reg_mode = DTSRegMode.CUSTOM
+
+                node.entries["clocks"] = root / "sys_clk"
+                node.entries["vmmc-supply"] = vreg_mmc_node
+                node.entries["bus-width"] = HexInt(4)
+
+                reg_dict = OrderedDict()
+                reg_dict["phy"] = dts_regs_entries(f"{name}_phy", d)["reg"]
+                reg_dict["core"] = dts_regs_entries(f"{name}_core", d)["reg"]
+                reg_dict["reader"] = dts_regs_entries(f"{name}_block2mem", d)["reg"]
+                reg_dict["writer"] = dts_regs_entries(f"{name}_mem2block", d)["reg"]
+                reg_dict["irq"] = dts_regs_entries(f"{name}_irq", d)["reg"]
+                node.entries["reg-names"] = reg_dict.keys()
+                node.entries["reg"] =reg_dict.values()
+
+                # Interrupt part
+                interrupt_constant_name = f"{name}_irq_interrupt"
+                if interrupt_constant_name in d["constants"]:
+                    node.entries["interrupts"] = d["constants"][interrupt_constant_name]
 
         self.check_if_exists(name)
         sdcard = LiteSDCard(self, name=sdcard_name, **kwargs)
@@ -2659,17 +2774,18 @@ class LiteXSoC(SoC):
         self.add_module(name=f"{name}_vtg", module=vtg)
 
         # Video FrameBuffer.
+        hres = int(timings.split("@")[0].split("x")[0])
+        vres = int(timings.split("@")[0].split("x")[1])
         timings = timings if isinstance(timings, str) else timings[0]
         base = self.mem_map.get(name, None)
         if base is None:
             self.bus.add_region(name, SoCRegion(
                 origin = 0x40c00000,
-                size   = 0x800000,
+                size   = (hres * vres * VideoFrameBuffer.get_depth(format)) // 8,
                 linker = True)
             )
             base = self.bus.regions[name].origin
-        hres = int(timings.split("@")[0].split("x")[0])
-        vres = int(timings.split("@")[0].split("x")[1])
+
         vfb = VideoFrameBuffer(self.sdram.crossbar.get_port(),
             hres                  = hres,
             vres                  = vres,
@@ -2688,10 +2804,10 @@ class LiteXSoC(SoC):
         self.comb += vfb.source.connect(phy if isinstance(phy, stream.Endpoint) else phy.sink)
 
         # Constants.
-        self.add_constant("VIDEO_FRAMEBUFFER_BASE", base)
-        self.add_constant("VIDEO_FRAMEBUFFER_HRES", hres)
-        self.add_constant("VIDEO_FRAMEBUFFER_VRES", vres)
-        self.add_constant("VIDEO_FRAMEBUFFER_DEPTH", vfb.depth)
+        self.add_constant(f"{name}_BASE", base)
+        self.add_constant(f"{name}_HRES", hres)
+        self.add_constant(f"{name}_VRES", vres)
+        self.add_constant(f"{name}_DEPTH", vfb.depth)
 
 # LiteXSoCArgumentParser ---------------------------------------------------------------------------
 

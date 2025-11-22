@@ -20,8 +20,8 @@
 #include <libliteeth/inet.h>
 #include <libliteeth/udp.h>
 
-//#define ETH_UDP_TX_DEBUG
-//#define ETH_UDP_RX_DEBUG
+//#define ETHMAC_UDP_TX_DEBUG
+//#define ETHMAC_UDP_RX_DEBUG
 
 #define ETHERTYPE_ARP 0x0806
 #define ETHERTYPE_IP  0x0800
@@ -166,7 +166,7 @@ static void send_packet(void)
 	txlen += 4;
 #endif
 
-#ifdef ETH_UDP_TX_DEBUG
+#ifdef ETHMAC_UDP_TX_DEBUG
 	int j;
 	printf(">>>> txlen : %d\n", txlen);
 	for(j=0;j<txlen;j++)
@@ -208,7 +208,7 @@ void udp_set_mac(const uint8_t *macaddr)
 static uint8_t cached_mac[6];
 static uint32_t cached_ip;
 
-#ifdef ETH_UDP_BROADCAST
+#ifdef ETHMAC_UDP_BROADCAST
 void udp_set_broadcast(void)
 {
 	int i;
@@ -216,7 +216,7 @@ void udp_set_broadcast(void)
 		cached_mac[i] = 0xFF;
 	cached_ip = IPTOINT(255, 255, 255, 255);
 }
-#endif /* ETH_UDP_BROADCAST */
+#endif /* ETHMAC_UDP_BROADCAST */
 
 static void process_arp(void)
 {
@@ -557,9 +557,9 @@ static void process_icmp(void)
 }
 
 static udp_callback rx_callback;
-#ifdef ETH_UDP_BROADCAST
+#ifdef ETHMAC_UDP_BROADCAST
 static udp_callback bx_callback;
-#endif /* ETH_UDP_BROADCAST */
+#endif /* ETHMAC_UDP_BROADCAST */
 
 static void process_udp(void)
 {
@@ -574,24 +574,24 @@ static void process_udp(void)
 	if(udp_ip->ip.proto != IP_PROTO_UDP) return;
 	if(ntohs(udp_ip->udp.length) < sizeof(struct udp_header)) return;
 	if(ntohl(udp_ip->ip.dst_ip) != my_ip) {
-#ifdef ETH_UDP_BROADCAST
+#ifdef ETHMAC_UDP_BROADCAST
 		/* If the destination IP is not mine, check if it is a broadcast */
 		if(ntohl(udp_ip->ip.dst_ip) == IPTOINT(255, 255, 255, 255) && bx_callback) {
 			bx_callback(ntohl(udp_ip->ip.src_ip), ntohs(udp_ip->udp.src_port), ntohs(udp_ip->udp.dst_port),
 				    udp_ip->payload, ntohs(udp_ip->udp.length)-sizeof(struct udp_header));
 		}
-#endif /* ETH_UDP_BROADCAST */
+#endif /* ETHMAC_UDP_BROADCAST */
 		return;
 	}
 
 	if(rx_callback) {
 		rx_callback(ntohl(udp_ip->ip.src_ip), ntohs(udp_ip->udp.src_port), ntohs(udp_ip->udp.dst_port),
 				udp_ip->payload, ntohs(udp_ip->udp.length)-sizeof(struct udp_header));
-#ifdef ETH_UDP_BROADCAST
+#ifdef ETHMAC_UDP_BROADCAST
 	} else if(bx_callback) {
 		bx_callback(ntohl(udp_ip->ip.src_ip), ntohs(udp_ip->udp.src_port), ntohs(udp_ip->udp.dst_port),
 				udp_ip->payload, ntohs(udp_ip->udp.length)-sizeof(struct udp_header));
-#endif /* ETH_UDP_BROADCAST */
+#endif /* ETHMAC_UDP_BROADCAST */
 	}
 }
 
@@ -600,18 +600,18 @@ void udp_set_callback(udp_callback callback)
 	rx_callback = callback;
 }
 
-#ifdef ETH_UDP_BROADCAST
+#ifdef ETHMAC_UDP_BROADCAST
 void udp_set_broadcast_callback(udp_callback callback)
 {
 	bx_callback = callback;
 }
-#endif /* ETH_UDP_BROADCAST */
+#endif /* ETHMAC_UDP_BROADCAST */
 
 static void process_frame(void)
 {
 	flush_cpu_dcache();
 
-#ifdef ETH_UDP_RX_DEBUG
+#ifdef ETHMAC_UDP_RX_DEBUG
 	int j;
 	printf("<<< rxlen : %d\n", rxlen);
 	for(j=0;j<rxlen;j++)
@@ -673,9 +673,9 @@ void udp_start(const uint8_t *macaddr, uint32_t ip)
 	rxslot = 0;
 	rxbuffer = (ethernet_buffer *)(ETHMAC_BASE + ETHMAC_SLOT_SIZE * rxslot);
 	rx_callback = (udp_callback)0;
-#ifdef ETH_UDP_BROADCAST
+#ifdef ETHMAC_UDP_BROADCAST
 	bx_callback = (udp_callback)0;
-#endif /* ETH_UDP_BROADCAST */
+#endif /* ETHMAC_UDP_BROADCAST */
 }
 
 void udp_service(void)

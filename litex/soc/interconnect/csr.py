@@ -60,11 +60,11 @@ class CSRConstant(DUID):
     running on the device.
     """
 
-    def __init__(self, value, bits_sign=None, name=None, n=None):
+    def __init__(self, value, bits_sign=None, name=None, n=None, string=False):
         DUID.__init__(self)
         self.n        = n
         self.fixed    = n is not None
-        self.value    = Constant(value, bits_sign)
+        self.value    = Constant(value, bits_sign, string=string)
         self.name     = get_obj_var_name(name)
         self.constant = value
         if self.name is None:

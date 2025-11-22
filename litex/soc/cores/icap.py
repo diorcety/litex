@@ -15,6 +15,7 @@ from litex.gen import *
 
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect import stream
+from litex.soc.cores.dts import DTSBase
 
 # Constants ----------------------------------------------------------------------------------------
 
@@ -276,7 +277,7 @@ class ICAP(LiteXModule):
         platform.add_false_path_constraints(self.cd_icap.clk, sys_clk)
 
 
-class ICAPBitstream(LiteXModule):
+class ICAPBitstream(LiteXModule, DTSBase):
     """ICAP Bitstream
 
     Allow sending bitstreams to ICAPE2 of Xilinx 7-Series FPGAs.
@@ -288,7 +289,9 @@ class ICAPBitstream(LiteXModule):
     The CPU accesses/FIFO must be fast/large enough to ensure there is no gap in the stream sent to
     the ICAPE2.
     """
+    LINUX_DTS_COMPATIBLE = "litex,fpga-icap"
     def __init__(self, fifo_depth=8, icap_clk_div=4, simulation=False):
+        super().__init__()
         self.sink_data  = CSRStorage(32, reset_less=True)
         self.sink_ready = CSRStatus()
 
@@ -334,3 +337,7 @@ class ICAPBitstream(LiteXModule):
     def add_timing_constraints(self, platform, sys_clk_freq, sys_clk):
         platform.add_period_constraint(self.cd_icap.clk, 16*1e9/sys_clk_freq)
         platform.add_false_path_constraints(self.cd_icap.clk, sys_clk)
+
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        node = root / "soc" + ("icap", name, cls)

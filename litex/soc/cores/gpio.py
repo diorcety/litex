@@ -10,6 +10,8 @@ from migen.genlib.cdc import MultiReg
 
 from litex.gen import *
 
+from litex.soc.cores.dts import DTSBase, DTSRegMode
+
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect.csr_eventmanager import *
 
@@ -17,6 +19,27 @@ from litex.soc.interconnect.csr_eventmanager import *
 
 def _to_signal(obj):
     return obj.raw_bits() if isinstance(obj, Record) else obj
+
+
+class _GPIODTS(DTSBase):
+    LINUX_DTS_COMPATIBLE = "litex,gpio"
+
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        node = root / "soc" + ("gpio", name, cls)
+        node.reg_mode = DTSRegMode.ONE_REG
+        node.entries["#address-cells"] = 0
+        node.entries["gpio-controller"] = None
+        node.entries["#gpio-cells"] = 2
+        ngpio_in, ngpio_out = d["constants"].get(f"{name}_in_ngpio", 0), d["constants"].get(f"{name}_out_ngpio", 0)
+        assert ngpio_in == 0 or ngpio_out == 0
+        node.entries["litex,direction"] = "in" if ngpio_in > 0 else "out"
+        node.entries["litex,ngpio"] = max(ngpio_in, ngpio_out)
+
+        # Interrupt part
+        if cls.init_interrupts(name, d, node):
+            node.entries["interrupt-controller"] = None
+            node.entries["#interrupt-cells"] = 2
 
 
 class _GPIOIRQ(LiteXModule):
@@ -45,42 +68,49 @@ class _GPIOIRQ(LiteXModule):
 
 # GPIO Input ---------------------------------------------------------------------------------------
 
-class GPIOIn(_GPIOIRQ):
+class GPIOIn(_GPIOIRQ, _GPIODTS):
     def __init__(self, pads, with_irq=False):
+        super().__init__()
         pads = _to_signal(pads)
         self._in = CSRStatus(len(pads), description="GPIO Input(s) Status.")
+        self._in_ngpio  = CSRConstant(len(pads))
         self.specials += MultiReg(pads, self._in.status)
         if with_irq:
             self.add_irq(self._in.status)
 
 # GPIO Output --------------------------------------------------------------------------------------
 
-class GPIOOut(LiteXModule):
+class GPIOOut(LiteXModule, _GPIODTS):
     def __init__(self, pads, reset=0):
+        super().__init__()
         pads = _to_signal(pads)
-        self.out = CSRStorage(len(pads), reset=reset, description="GPIO Output(s) Control.")
-        self.comb += pads.eq(self.out.storage)
+        self._out = CSRStorage(len(pads), reset=reset, description="GPIO Output(s) Control.")
+        self._out_ngpio  = CSRConstant(len(pads))
+        self.comb += pads.eq(self._out.storage)
 
 # GPIO Input/Output --------------------------------------------------------------------------------
 
 class GPIOInOut(LiteXModule):
-    def __init__(self, in_pads, out_pads):
-        self.gpio_in  = GPIOIn(in_pads)
-        self.gpio_out = GPIOOut(out_pads)
-
-    def get_csrs(self):
-        return self.gpio_in.get_csrs() + self.gpio_out.get_csrs()
+    def __init__(self, in_pads, out_pads, with_irq=False):
+        super().__init__()
+        self._in  = GPIOIn(in_pads, with_irq)
+        if self.gpio_in and with_irq:
+            self.ev = self.gpio_in.ev
+        self._out = GPIOOut(out_pads)
 
 # GPIO Tristate ------------------------------------------------------------------------------------
 
 class GPIOTristate(_GPIOIRQ):
     def __init__(self, pads, with_irq=False):
+        super().__init__()
         internal = not (hasattr(pads, "o") and hasattr(pads, "oe") and hasattr(pads, "i"))
         nbits    = len(pads) if internal else len(pads.o)
 
         self._oe  = CSRStorage(nbits, description="GPIO Tristate(s) Control.")
         self._in  = CSRStatus(nbits,  description="GPIO Input(s) Status.")
+        self._in_ngpio  = CSRConstant(nbits)
         self._out = CSRStorage(nbits, description="GPIO Ouptut(s) Control.")
+        self._out_ngpio  = CSRConstant(nbits)
 
         # # #
 

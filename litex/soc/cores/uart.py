@@ -16,10 +16,14 @@ from migen.genlib.cdc import MultiReg
 from litex.gen import *
 from litex.gen.genlib.misc import WaitTimer
 
+from litex.soc.cores.dts import DTSBase
+
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect.csr_eventmanager import *
 from litex.soc.interconnect import wishbone
 from litex.soc.interconnect import stream
+
+from litex.tools.litex_json2dts_linux import dev_name
 
 # Common -------------------------------------------------------------------------------------------
 
@@ -28,6 +32,7 @@ def UARTPads():
 
 class UARTInterface:
     def __init__(self):
+        super().__init__()
         self.sink   = stream.Endpoint([("data", 8)])
         self.source = stream.Endpoint([("data", 8)])
 
@@ -211,12 +216,16 @@ def UARTPHY(pads, clk_freq, baudrate, with_dynamic_baudrate=False):
     else:
         return  RS232PHY(pads, clk_freq, baudrate, with_dynamic_baudrate=with_dynamic_baudrate)
 
-class UART(LiteXModule, UARTInterface):
+class UART(LiteXModule, UARTInterface, DTSBase):
+    LINUX_DTS_COMPATIBLE = "litex,liteuart"
+
     def __init__(self, phy=None,
             tx_fifo_depth = 16,
             rx_fifo_depth = 16,
             rx_fifo_rx_we = False,
             phy_cd        = "sys"):
+        super().__init__()
+
         self._rxtx    = CSR(8) # RX/TX Data.
         self._txfull  = CSRStatus(description="TX FIFO Full.")
         self._rxempty = CSRStatus(description="RX FIFO Empty.")
@@ -296,6 +305,15 @@ class UART(LiteXModule, UARTInterface):
         self.sync += flush_count.eq(flush_count + 1)
         self.comb += If(timer.done, flush_ep.ready.eq(flush_count == 0))
         #self.sync += If(flush_ep.valid & flush_ep.ready, Display("%c", flush_ep.data))
+
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        node = root / "soc" + ("uart", name)
+        node.cls = cls
+        node.aliases.append(dev_name(name, "serial"))
+
+        # Interrupt part
+        cls.init_interrupts(name, d, node)
 
 # UART Bone ----------------------------------------------------------------------------------------
 

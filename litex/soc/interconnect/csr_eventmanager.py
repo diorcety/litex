@@ -140,6 +140,7 @@ class EventManager(Module, AutoCSR):
     """
 
     def __init__(self):
+        super().__init__()
         self.irq = Signal()
 
     def do_finalize(self):

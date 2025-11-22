@@ -10,11 +10,13 @@ from migen.fhdl.specials import Tristate
 
 from litex.gen import *
 
+from litex.soc.cores.dts import DTSBase
+
 from litex.soc.interconnect.csr import *
 
 # I2C Master Bit-Banging ---------------------------------------------------------------------------
 
-class I2CMaster(LiteXModule):
+class I2CMaster(LiteXModule, DTSBase):
     """I2C bus master (bit-banged).
 
     This core provides minimal hardware for use as a software controlled bit-banged I2C bus master.
@@ -25,6 +27,7 @@ class I2CMaster(LiteXModule):
 
     .. _UM10204: https://www.pololu.com/file/0J435/UM10204.pdf
     """
+    LINUX_DTS_COMPATIBLE = "litex,i2c"
     pads_layout = [("scl", 1), ("sda", 1)]
 
     def __init__(self, pads=None, default_dev=False, connect_pads=True):
@@ -35,6 +38,7 @@ class I2CMaster(LiteXModule):
         :param default_dev : (optional) A `bool` indicating whether this I2C master should be used as
                              the default I2C interface (default is ``False``).
         """
+        super().__init__()
         self.init = []
         if pads is None:
             pads = Record(self.pads_layout)
@@ -92,6 +96,11 @@ class I2CMaster(LiteXModule):
 
         self.init.append((addr, init, init_addr_len))
 
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        node = root / "soc" + ("i2c", name, cls)
+        node.entries["#address-cells"] = 1
+        node.entries["#size-cells"] = 0
 
 class I2CMasterSim(I2CMaster):
     """I2C bus master (bit-banged) for Verilator simulation

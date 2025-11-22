@@ -6,6 +6,7 @@
 
 import math
 
+from litex.soc.cores.dts import DTSBase
 from migen import *
 from migen.genlib.cdc import MultiReg
 
@@ -13,9 +14,28 @@ from litex.gen import *
 
 from litex.soc.interconnect.csr import *
 
+# SPI Dev -----------------------------------------------------------------------------------------
+
+class SPIDev(LiteXModule, DTSBase):
+    LINUX_DTS_COMPATIBLE = "linux,spidev"
+
+    def __init__(self, parent):
+        super().__init__()
+        self._spi_parent = CSRConstant(parent, string=True)
+
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        parent = d["constants"].get(f"{name}_spi_parent", None)
+        assert parent is not None, f"No {name}_spi_parent"
+
+        slot = root / "soc" / parent + ("spidev", name, cls, 0)
+        slot.entries["status"] = "okay"
+        slot.entries["reg"] = 0
+        slot.entries["spi-max-frequency"] = d["constants"].get(f"{parent}_frequency", 1000000)
+
 # SPI Master ---------------------------------------------------------------------------------------
 
-class SPIMaster(LiteXModule):
+class SPIMaster(LiteXModule, DTSBase):
     """4-wire SPI Master
 
     Implements a 4-wire SPI Master with CPOL=0 and CPHA=0, tailored for FPGA designs. It allows
@@ -39,8 +59,10 @@ class SPIMaster(LiteXModule):
         SPI Flash page programming or when hardware CS lines are insufficient. It allows manual CS management,
         enabling complex transaction sequences and extended device communication.
     """
+    LINUX_DTS_COMPATIBLE = "litex,litespi"
     pads_layout = [("clk", 1), ("cs_n", 1), ("mosi", 1), ("miso", 1)]
     def __init__(self, pads, data_width, sys_clk_freq, spi_clk_freq, with_csr=True, mode="raw"):
+        super().__init__()
         assert mode in ["raw", "aligned"]
         self.mode = mode
         if pads is None:
@@ -219,3 +241,12 @@ class SPIMaster(LiteXModule):
     def add_clk_divider(self):
         self._clk_divider = CSRStorage(16, description="SPI Clk Divider.", reset=self.clk_divider.reset)
         self.comb += self.clk_divider.eq(self._clk_divider.storage)
+
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        node = root / "soc" + ("spi", name, cls)
+        node.entries["litespi,max-bpw"] = 8
+        node.entries["litespi,sck-frequency"] = d["constants"].get(f"{name}_frequency", 1000000)
+        node.entries["litespi,num-cs"] = 1
+        node.entries["#address-cells"] = 1
+        node.entries["#size-cells"] = 0

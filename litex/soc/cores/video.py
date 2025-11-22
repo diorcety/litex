@@ -17,6 +17,7 @@ from litex.gen import *
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect import stream
 from litex.soc.cores.code_tmds import TMDSEncoder
+from litex.soc.cores.dts import DTSBase, DTSRegMode
 
 from litex.build.io import SDROutput, DDROutput
 
@@ -644,20 +645,27 @@ class VideoTerminal(LiteXModule):
 
 # Video FrameBuffer --------------------------------------------------------------------------------
 
-class VideoFrameBuffer(LiteXModule):
+class VideoFrameBuffer(LiteXModule, DTSBase):
     """Video FrameBuffer"""
-    def __init__(self, dram_port, hres=800, vres=600, base=0x00000000, fifo_depth=64*KILOBYTE, clock_domain="sys", clock_faster_than_sys=False, format="rgb888"):
-        self.vtg_sink  = vtg_sink = stream.Endpoint(video_timing_layout)
-        self.source    = source   = stream.Endpoint(video_data_layout)
-        self.underflow = Signal()
+    LINUX_DTS_COMPATIBLE = "simple-framebuffer"
 
-        self.depth = depth = {
+    @classmethod
+    def get_depth(cls, format):
+        return {
             "rgb888" : 32,
             "rgb565" : 16,
             "rgb332" : 8,
             "mono8"  : 8,
             "mono1"  : 1,
         }[format]
+
+    def __init__(self, dram_port, hres=800, vres=600, base=0x00000000, fifo_depth=64*KILOBYTE, clock_domain="sys", clock_faster_than_sys=False, format="rgb888"):
+        super().__init__()
+        self.vtg_sink  = vtg_sink = stream.Endpoint(video_timing_layout)
+        self.source    = source   = stream.Endpoint(video_data_layout)
+        self.underflow = Signal()
+
+        self.depth = depth = self.get_depth(format)
 
         # # #
 
@@ -762,6 +770,28 @@ class VideoFrameBuffer(LiteXModule):
 
         # Underflow.
         self.comb += self.underflow.eq(~source.valid)
+
+    @classmethod
+    def linux_dts(cls, name, d, root):
+        framebuffer_width  = d["constants"][f"{name}_hres"]
+        framebuffer_height = d["constants"][f"{name}_vres"]
+        framebuffer_depth  = d["constants"][f"{name}_depth"]
+
+        framebuffer_format = "a8b8g8r8"
+        if (framebuffer_depth == 16):
+            framebuffer_format = "r5g6b5"
+
+        node = root / "soc" + ("framebuffer", name, cls)
+        node.reg_mode = DTSRegMode.MEMORY
+        node.entries["width"] = framebuffer_width
+        node.entries["height"] = framebuffer_height
+        node.entries["size"] = framebuffer_width * framebuffer_height * (framebuffer_depth//8)
+        node.entries["stride"] = framebuffer_width * (framebuffer_depth//8)
+        node.entries["format"] = framebuffer_format
+
+        reserved_node = root / "reserved-memory" + "framebuffer"
+        reserved_node.csr_name = name
+        reserved_node.reg_mode = DTSRegMode.MEMORY
 
 # Video PHYs ---------------------------------------------------------------------------------------
 
