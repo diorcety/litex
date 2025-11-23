@@ -4,7 +4,7 @@ import unittest
 
 from litex.gen.common import Record
 from litex.soc.cores.dts import _LINUX_DTS_COMPATIBLES, DTSNode, DTSRegMode, load_csr
-from litex.soc.cores.gpio import _GPIODTS, GPIOIn
+from litex.soc.cores.gpio import _GPIODTS, GPIOTristate
 
 
 class TestDTS(unittest.TestCase):
@@ -13,7 +13,7 @@ class TestDTS(unittest.TestCase):
         self.maxDiff = None
     def test_get_dts_class(self):
         pads = Record([("a", 1), ("b", 1), ("c", 1), ("d", 1)])
-        module = GPIOIn(pads, True)
+        module = GPIOTristate(pads, True)
         self.assertTrue(hasattr(module, "linux_dts"))
         self.assertTrue(hasattr(module, "linux_dts_compatible"))
         self.assertTrue("litex,gpio" in _LINUX_DTS_COMPATIBLES)
@@ -71,12 +71,12 @@ class TestDTS(unittest.TestCase):
             #address-cells = <0>;
             gpio-controller;
             #gpio-cells = <2>;
-            litex,direction = "out";
-            litex,ngpio = <0>;
+            litex,ngpio = <0 0>;
             interrupts = <5>;
             interrupt-controller;
             #interrupt-cells = <2>;
-            reg = <0xf0004000 0x15>;
+            reg = <0xf0004000 0x1>, <0xf0004004 0x1>, <0xf0004008 0x1>, <0xf000400c 0x1>, <0xf0004010 0x1>, <0xf0004014 0x1>;
+            reg-names = "in", "mode", "edge", "ev_status", "ev_pending", "ev_enable";
             status = "okay";
         };
     };

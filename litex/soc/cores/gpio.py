@@ -27,14 +27,11 @@ class _GPIODTS(DTSBase):
     @classmethod
     def linux_dts(cls, name, d, root):
         node = root / "soc" + ("gpio", name, cls)
-        node.reg_mode = DTSRegMode.ONE_REG
+        node.reg_mode = DTSRegMode.MULTI_REG
         node.entries["#address-cells"] = 0
         node.entries["gpio-controller"] = None
         node.entries["#gpio-cells"] = 2
-        ngpio_in, ngpio_out = d["constants"].get(f"{name}_in_ngpio", 0), d["constants"].get(f"{name}_out_ngpio", 0)
-        assert ngpio_in == 0 or ngpio_out == 0
-        node.entries["litex,direction"] = "in" if ngpio_in > 0 else "out"
-        node.entries["litex,ngpio"] = max(ngpio_in, ngpio_out)
+        node.entries["litex,ngpio"] = (d["constants"].get(f"{name}_in_ngpio", 0), d["constants"].get(f"{name}_out_ngpio", 0))
 
         # Interrupt part
         if cls.init_interrupts(name, d, node):
@@ -90,17 +87,19 @@ class GPIOOut(LiteXModule, _GPIODTS):
 
 # GPIO Input/Output --------------------------------------------------------------------------------
 
-class GPIOInOut(LiteXModule):
+class GPIOInOut(LiteXModule, _GPIODTS):
     def __init__(self, in_pads, out_pads, with_irq=False):
         super().__init__()
         self._in  = GPIOIn(in_pads, with_irq)
+        self._in_ngpio  = CSRConstant(len(in_pads))
         if self.gpio_in and with_irq:
             self.ev = self.gpio_in.ev
         self._out = GPIOOut(out_pads)
+        self._out_ngpio  = CSRConstant(len(out_pads))
 
 # GPIO Tristate ------------------------------------------------------------------------------------
 
-class GPIOTristate(_GPIOIRQ):
+class GPIOTristate(_GPIOIRQ, _GPIODTS):
     def __init__(self, pads, with_irq=False):
         super().__init__()
         internal = not (hasattr(pads, "o") and hasattr(pads, "oe") and hasattr(pads, "i"))
